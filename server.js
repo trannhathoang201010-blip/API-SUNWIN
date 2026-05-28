@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -21,6 +23,83 @@ let lichSuXucXac = [];
 let lichSuDuDoan = [];
 let thongKe = { tong: 0, dung: 0, sai: 0, tiLe: '0%' };
 let cache = new Map();
+
+// ==========================================
+// DATABASE SIÊU ĐIỆN RỘNG (TỪ FILE CAU.TXT)
+// ==========================================
+let patternDatabase = new Map();
+let patternFrequency = new Map();
+
+function loadPatternDatabase() {
+  const filePath = path.join(__dirname, 'cau.txt');
+  if (!fs.existsSync(filePath)) {
+    console.log('⚠️ Không tìm thấy file cau.txt, sử dụng database mẫu');
+    return;
+  }
+  
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split('\n');
+  let count = 0;
+  
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+    
+    if (line.includes(' - ')) {
+      let [patternPart, resultPart] = line.split(' - ');
+      
+      if (patternPart.includes('. ')) {
+        patternPart = patternPart.split('. ')[1];
+      }
+      
+      const pattern = patternPart.trim();
+      const result = resultPart.trim();
+      
+      if (/^[TX]+$/.test(pattern)) {
+        const binaryPattern = pattern.split('').map(c => c === 'T' ? '1' : '0').join('');
+        const target = result === 'T' ? 1 : 0;
+        
+        if (!patternDatabase.has(binaryPattern)) {
+          patternDatabase.set(binaryPattern, target);
+          patternFrequency.set(binaryPattern, 1);
+          count++;
+        } else {
+          patternFrequency.set(binaryPattern, patternFrequency.get(binaryPattern) + 1);
+        }
+      }
+    }
+  }
+  
+  console.log(`✅ Đã tải ${count} pattern từ file cau.txt`);
+  
+  // Mở rộng database với các biến thể
+  const entries = [...patternDatabase.entries()];
+  for (let [pattern, target] of entries) {
+    if (pattern.length < 6) continue;
+    
+    // Pattern đảo ngược
+    const inverted = pattern.split('').map(c => c === '0' ? '1' : '0').join('');
+    if (!patternDatabase.has(inverted)) {
+      patternDatabase.set(inverted, 1 - target);
+    }
+    
+    // Pattern gương
+    const mirrored = pattern.split('').reverse().join('');
+    if (!patternDatabase.has(mirrored)) {
+      patternDatabase.set(mirrored, target);
+    }
+    
+    // Pattern đảo gương
+    const mirroredInverted = inverted.split('').reverse().join('');
+    if (!patternDatabase.has(mirroredInverted)) {
+      patternDatabase.set(mirroredInverted, 1 - target);
+    }
+  }
+  
+  console.log(`✅ Database mở rộng: ${patternDatabase.size} patterns`);
+}
+
+loadPatternDatabase();
 
 // ==========================================
 // CẬP NHẬT THỐNG KÊ
@@ -61,188 +140,175 @@ async function layDuLieu() {
 }
 
 // ==========================================
-// ========== THUẬT TOÁN CỰC MẠNH (30+ PHƯƠNG PHÁP) ==========
+// ========== THUẬT TOÁN NÂNG CẤP ==========
 // ==========================================
 
-// 1. PHÂN TÍCH CHUỖI BỆT (Streak)
-function phanTichBệt(lichSu) {
+// Hàm chuyển đổi Tài/Xỉu sang số
+function toNumber(r) { return r === "Tài" ? 1 : 0; }
+function toString(n) { return n === 1 ? "Tài" : "Xỉu"; }
+
+// 1. PHÂN TÍCH CẦU BỆT (Streak Analysis)
+function phanTichBet(lichSu) {
   if (lichSu.length < 3) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   let streak = 1;
   for (let i = 1; i < lichSu.length; i++) {
     if (lichSu[i] === lichSu[0]) streak++;
     else break;
   }
-  if (streak >= 6) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 95, soPP: 1 };
-    else return { diemTai: 95, diemXiu: 0, soPP: 1 };
-  }
-  if (streak === 5) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 90, soPP: 1 };
-    else return { diemTai: 90, diemXiu: 0, soPP: 1 };
-  }
-  if (streak === 4) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 84, soPP: 1 };
-    else return { diemTai: 84, diemXiu: 0, soPP: 1 };
-  }
-  if (streak === 3) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 74, soPP: 1 };
-    else return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  }
+  if (streak >= 7) return { diemTai: lichSu[0] === "Tài" ? 0 : 96, diemXiu: lichSu[0] === "Tài" ? 96 : 0, soPP: 1 };
+  if (streak >= 6) return { diemTai: lichSu[0] === "Tài" ? 0 : 93, diemXiu: lichSu[0] === "Tài" ? 93 : 0, soPP: 1 };
+  if (streak === 5) return { diemTai: lichSu[0] === "Tài" ? 0 : 88, diemXiu: lichSu[0] === "Tài" ? 88 : 0, soPP: 1 };
+  if (streak === 4) return { diemTai: lichSu[0] === "Tài" ? 0 : 82, diemXiu: lichSu[0] === "Tài" ? 82 : 0, soPP: 1 };
+  if (streak === 3) return { diemTai: lichSu[0] === "Tài" ? 0 : 74, diemXiu: lichSu[0] === "Tài" ? 74 : 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 2. TẦN SUẤT 5 PHIÊN
-function tanSuat5(lichSu) {
-  if (lichSu.length < 5) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const last5 = lichSu.slice(0, 5);
-  const tai5 = last5.filter(r => r === "Tài").length;
-  if (tai5 >= 4) return { diemTai: 0, diemXiu: 78, soPP: 1 };
-  if (tai5 <= 1) return { diemTai: 78, diemXiu: 0, soPP: 1 };
-  if (tai5 === 3) return { diemTai: 68, diemXiu: 0, soPP: 1 };
-  if (tai5 === 2) return { diemTai: 0, diemXiu: 68, soPP: 1 };
-  return { diemTai: 60, diemXiu: 60, soPP: 1 };
-}
-
-// 3. TẦN SUẤT 10 PHIÊN (Martingale)
-function tanSuat10(lichSu) {
-  if (lichSu.length < 10) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const last10 = lichSu.slice(0, 10);
-  const tai10 = last10.filter(r => r === "Tài").length;
-  if (tai10 >= 8) return { diemTai: 0, diemXiu: 88, soPP: 1 };
-  if (tai10 <= 2) return { diemTai: 88, diemXiu: 0, soPP: 1 };
-  if (tai10 >= 7) return { diemTai: 0, diemXiu: 80, soPP: 1 };
-  if (tai10 <= 3) return { diemTai: 80, diemXiu: 0, soPP: 1 };
-  if (tai10 >= 6) return { diemTai: 0, diemXiu: 72, soPP: 1 };
-  if (tai10 <= 4) return { diemTai: 72, diemXiu: 0, soPP: 1 };
-  return { diemTai: 62, diemXiu: 62, soPP: 1 };
-}
-
-// 4. TẦN SUẤT 20 PHIÊN
-function tanSuat20(lichSu) {
-  if (lichSu.length < 20) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const last20 = lichSu.slice(0, 20);
-  const tai20 = last20.filter(r => r === "Tài").length;
-  if (tai20 >= 14) return { diemTai: 0, diemXiu: 80, soPP: 1 };
-  if (tai20 <= 6) return { diemTai: 80, diemXiu: 0, soPP: 1 };
-  if (tai20 >= 13) return { diemTai: 0, diemXiu: 74, soPP: 1 };
-  if (tai20 <= 7) return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  return { diemTai: 62, diemXiu: 62, soPP: 1 };
-}
-
-// 5. CẦU 1-1 (Zigzag)
+// 2. CẦU 1-1 (Alternating Pattern)
 function cau1_1(lichSu) {
   if (lichSu.length < 5) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  let zigzag = 0;
+  let alternating = true;
   for (let i = 1; i < 5; i++) {
-    if (lichSu[i] !== lichSu[i-1]) zigzag++;
+    if (lichSu[i] === lichSu[i-1]) { alternating = false; break; }
   }
-  if (zigzag >= 4) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 86, soPP: 1 };
-    else return { diemTai: 86, diemXiu: 0, soPP: 1 };
-  }
-  if (zigzag >= 3) {
-    if (lichSu[0] === "Tài") return { diemTai: 0, diemXiu: 78, soPP: 1 };
-    else return { diemTai: 78, diemXiu: 0, soPP: 1 };
+  if (alternating) {
+    const next = lichSu[0] === "Tài" ? "Xỉu" : "Tài";
+    return { diemTai: next === "Tài" ? 86 : 0, diemXiu: next === "Xỉu" ? 86 : 0, soPP: 1 };
   }
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 6. CẦU 2-1
-function cau2_1(lichSu) {
+// 3. CẦU 2-2 (Parallel Bridge)
+function cau2_2(lichSu) {
   if (lichSu.length < 6) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  if (lichSu[0] === lichSu[1] && lichSu[3] === lichSu[4] && lichSu[0] !== lichSu[3]) {
-    if (lichSu[0] === "Tài") return { diemTai: 80, diemXiu: 0, soPP: 1 };
-    else return { diemTai: 0, diemXiu: 80, soPP: 1 };
-  }
+  const last6 = lichSu.slice(0, 6);
+  if (last6.join('') === 'TàiTàiXỉuXỉuTàiTài') return { diemTai: 0, diemXiu: 85, soPP: 1 };
+  if (last6.join('') === 'XỉuXỉuTàiTàiXỉuXỉu') return { diemTai: 85, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 7. CẦU 3-2
-function cau3_2(lichSu) {
-  if (lichSu.length < 10) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const p = lichSu.slice(0, 5).join('');
-  if (p === "TàiTàiTàiXỉuXỉu") return { diemTai: 0, diemXiu: 84, soPP: 1 };
-  if (p === "XỉuXỉuXỉuTàiTài") return { diemTai: 84, diemXiu: 0, soPP: 1 };
+// 4. CẦU 3-3 (Extended Parallel)
+function cau3_3(lichSu) {
+  if (lichSu.length < 8) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  const last8 = lichSu.slice(0, 8);
+  if (last8.join('') === 'TàiTàiTàiXỉuXỉuXỉuTàiTài') return { diemTai: 0, diemXiu: 87, soPP: 1 };
+  if (last8.join('') === 'XỉuXỉuXỉuTàiTàiTàiXỉuXỉu') return { diemTai: 87, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 8. CẦU ĐỐI XỨNG
+// 5. CẦU ĐỐI XỨNG (Mirror Bridge)
 function cauDoiXung(lichSu) {
-  if (lichSu.length < 9) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  if (lichSu.length < 7) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   let isMirror = true;
-  for (let i = 0; i < 4; i++) {
-    if (lichSu[i] !== lichSu[8-i]) { isMirror = false; break; }
+  for (let i = 0; i < 3; i++) {
+    if (lichSu[i] !== lichSu[6 - i]) { isMirror = false; break; }
   }
   if (isMirror) {
-    if (lichSu[4] === "Tài") return { diemTai: 0, diemXiu: 82, soPP: 1 };
-    else return { diemTai: 82, diemXiu: 0, soPP: 1 };
+    const next = lichSu[3] === "Tài" ? "Xỉu" : "Tài";
+    return { diemTai: next === "Tài" ? 82 : 0, diemXiu: next === "Xỉu" ? 82 : 0, soPP: 1 };
   }
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 9. PATTERN LẶP 3
-function patternLap3(lichSu) {
-  if (lichSu.length < 9) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const p3 = lichSu.slice(0, 3);
-  if (lichSu.slice(3, 6).join('') === p3.join('') && lichSu.slice(6, 9).join('') === p3.join('')) {
-    if (p3[2] === "Tài") return { diemTai: 0, diemXiu: 88, soPP: 1 };
-    else return { diemTai: 88, diemXiu: 0, soPP: 1 };
+// 6. CẦU TAM GIÁC (Triangle Pattern)
+function cauTamGiac(lichSu) {
+  if (lichSu.length < 7) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  const last7 = lichSu.slice(0, 7);
+  if (last7.join('') === 'TàiXỉuTàiXỉuTàiXỉuTài') return { diemTai: 0, diemXiu: 78, soPP: 1 };
+  if (last7.join('') === 'XỉuTàiXỉuTàiXỉuTàiXỉu') return { diemTai: 78, diemXiu: 0, soPP: 1 };
+  return { diemTai: 0, diemXiu: 0, soPP: 0 };
+}
+
+// 7. CẦU VAI-ĐẦU-VAI (Head & Shoulders)
+function cauVaiDauVai(lichSu) {
+  if (lichSu.length < 7) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  const last7 = lichSu.slice(0, 7);
+  if (last7.join('') === 'XỉuTàiXỉuTàiXỉuTàiXỉu') return { diemTai: 80, diemXiu: 0, soPP: 1 };
+  if (last7.join('') === 'TàiXỉuTàiXỉuTàiXỉuTài') return { diemTai: 0, diemXiu: 80, soPP: 1 };
+  return { diemTai: 0, diemXiu: 0, soPP: 0 };
+}
+
+// 8. DATABASE TRA CỨU SIÊU ĐIỆN RỘNG
+function traCuuDatabase(lichSu) {
+  if (lichSu.length < 8 || patternDatabase.size === 0) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  
+  const windowSizes = [14, 12, 10, 8];
+  for (let ws of windowSizes) {
+    if (lichSu.length >= ws) {
+      const pattern = lichSu.slice(0, ws).map(r => r === "Tài" ? "1" : "0").join('');
+      
+      if (patternDatabase.has(pattern)) {
+        const target = patternDatabase.get(pattern);
+        const freq = patternFrequency.get(pattern) || 1;
+        let conf = ws >= 14 ? 94 : 90 - (14 - ws);
+        conf = Math.min(96, conf + Math.min(5, freq / 20));
+        return { diemTai: target === 1 ? conf : 0, diemXiu: target === 0 ? conf : 0, soPP: 1 };
+      }
+      
+      const inverted = pattern.split('').map(c => c === '0' ? '1' : '0').join('');
+      if (patternDatabase.has(inverted)) {
+        const target = 1 - patternDatabase.get(inverted);
+        const conf = ws >= 14 ? 92 : 88 - (14 - ws);
+        return { diemTai: target === 1 ? conf : 0, diemXiu: target === 0 ? conf : 0, soPP: 1 };
+      }
+    }
   }
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 10. PATTERN LẶP 4
-function patternLap4(lichSu) {
-  if (lichSu.length < 12) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const p4 = lichSu.slice(0, 4);
-  if (lichSu.slice(4, 8).join('') === p4.join('') && lichSu.slice(8, 12).join('') === p4.join('')) {
-    if (p4[3] === "Tài") return { diemTai: 0, diemXiu: 90, soPP: 1 };
-    else return { diemTai: 90, diemXiu: 0, soPP: 1 };
+  
+  // Fuzzy matching
+  const longest = lichSu.slice(0, 14).map(r => r === "Tài" ? "1" : "0").join('');
+  let bestSim = 0, bestTarget = null;
+  for (let [dbPattern, target] of [...patternDatabase.entries()].slice(0, 500)) {
+    if (dbPattern.length === longest.length) {
+      let sim = 0;
+      for (let i = 0; i < longest.length; i++) {
+        if (longest[i] === dbPattern[i]) sim++;
+      }
+      sim = sim / longest.length;
+      if (sim > bestSim && sim >= 0.75) {
+        bestSim = sim;
+        bestTarget = target;
+      }
+    }
   }
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 11. PHÂN TÍCH TỔNG ĐIỂM TRUNG BÌNH
-function tongDiemTB(tongData) {
-  if (!tongData || tongData.length < 10) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const avg = tongData.slice(0, 10).reduce((a, b) => a + b, 0) / 10;
-  if (avg > 12.5) return { diemTai: 0, diemXiu: 78, soPP: 1 };
-  if (avg < 8.5) return { diemTai: 78, diemXiu: 0, soPP: 1 };
-  if (avg > 11.5) return { diemTai: 0, diemXiu: 72, soPP: 1 };
-  if (avg < 9.5) return { diemTai: 72, diemXiu: 0, soPP: 1 };
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 12. XU HƯỚNG TỔNG ĐIỂM (Delta)
-function xuHuongTongDiem(tongData) {
-  if (!tongData || tongData.length < 20) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const gan = tongData.slice(0, 10).reduce((a, b) => a + b, 0) / 10;
-  const truoc = tongData.slice(10, 20).reduce((a, b) => a + b, 0) / 10;
-  const delta = gan - truoc;
-  if (delta > 2) return { diemTai: 0, diemXiu: 74, soPP: 1 };
-  if (delta < -2) return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  if (delta > 1.2) return { diemTai: 0, diemXiu: 68, soPP: 1 };
-  if (delta < -1.2) return { diemTai: 68, diemXiu: 0, soPP: 1 };
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 13. BIÊN ĐỘ TỔNG ĐIỂM
-function bienDoTongDiem(tongData) {
-  if (!tongData || tongData.length < 15) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const max = Math.max(...tongData.slice(0, 15));
-  const min = Math.min(...tongData.slice(0, 15));
-  if (max - min >= 12) {
-    if (max > 14) return { diemTai: 0, diemXiu: 76, soPP: 1 };
-    else return { diemTai: 76, diemXiu: 0, soPP: 1 };
+  if (bestTarget !== null) {
+    const conf = 70 + (bestSim - 0.75) * 80;
+    return { diemTai: bestTarget === 1 ? conf : 0, diemXiu: bestTarget === 0 ? conf : 0, soPP: 1 };
   }
-  if (max - min >= 9) {
-    if (max > 13) return { diemTai: 0, diemXiu: 70, soPP: 1 };
-    else return { diemTai: 70, diemXiu: 0, soPP: 1 };
-  }
+  
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 14. RSI (CHỈ BÁO SỨC MẠNH)
+// 9. CHUỖI MARKOV BẬC CAO
+function markovChain(lichSu) {
+  if (lichSu.length < 6) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  
+  const nums = lichSu.map(r => r === "Tài" ? 1 : 0);
+  const order = 4;
+  const transitions = new Map();
+  
+  for (let i = 0; i < nums.length - order; i++) {
+    const state = nums.slice(i, i + order).join(',');
+    const next = nums[i + order];
+    if (!transitions.has(state)) transitions.set(state, [0, 0]);
+    const arr = transitions.get(state);
+    arr[next]++;
+  }
+  
+  const currentState = nums.slice(-order).join(',');
+  if (transitions.has(currentState)) {
+    const [count0, count1] = transitions.get(currentState);
+    const total = count0 + count1;
+    if (total >= 2) {
+      const prob1 = count1 / total;
+      const conf = Math.min(90, 60 + total * 2);
+      if (prob1 >= 0.6) return { diemTai: conf, diemXiu: 0, soPP: 1 };
+      if (prob1 <= 0.4) return { diemTai: 0, diemXiu: conf, soPP: 1 };
+    }
+  }
+  
+  return { diemTai: 0, diemXiu: 0, soPP: 0 };
+}
+
+// 10. RSI CHUẨN HÓA
 function rsiIndicator(lichSu) {
   if (lichSu.length < 14) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.slice(0, 14).map(r => r === "Tài" ? 1 : 0);
@@ -257,12 +323,10 @@ function rsiIndicator(lichSu) {
   if (rsi <= 20) return { diemTai: 86, diemXiu: 0, soPP: 1 };
   if (rsi >= 70) return { diemTai: 0, diemXiu: 80, soPP: 1 };
   if (rsi <= 30) return { diemTai: 80, diemXiu: 0, soPP: 1 };
-  if (rsi >= 60) return { diemTai: 0, diemXiu: 72, soPP: 1 };
-  if (rsi <= 40) return { diemTai: 72, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 15. MACD (HỘI TỤ PHÂN KỲ)
+// 11. MACD
 function macdIndicator(lichSu) {
   if (lichSu.length < 26) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.map(r => r === "Tài" ? 1 : 0);
@@ -274,7 +338,7 @@ function macdIndicator(lichSu) {
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 16. BOLLINGER BANDS
+// 12. BOLLINGER BANDS
 function bollingerBands(lichSu) {
   if (lichSu.length < 20) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.slice(0, 20).map(r => r === "Tài" ? 1 : 0);
@@ -282,12 +346,12 @@ function bollingerBands(lichSu) {
   const variance = nums.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / 20;
   const std = Math.sqrt(variance);
   const last = nums[19];
-  if (last > mean + 2 * std) return { diemTai: 0, diemXiu: 78, soPP: 1 };
-  if (last < mean - 2 * std) return { diemTai: 78, diemXiu: 0, soPP: 1 };
+  if (last > mean + 1.5 * std) return { diemTai: 0, diemXiu: 78, soPP: 1 };
+  if (last < mean - 1.5 * std) return { diemTai: 78, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 17. STOCHASTIC OSCILLATOR
+// 13. STOCHASTIC OSCILLATOR
 function stochasticOsc(lichSu) {
   if (lichSu.length < 14) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.slice(0, 14).map(r => r === "Tài" ? 1 : 0);
@@ -296,12 +360,10 @@ function stochasticOsc(lichSu) {
   const k = (nums[13] - lowest) / (highest - lowest) * 100;
   if (k > 85) return { diemTai: 0, diemXiu: 78, soPP: 1 };
   if (k < 15) return { diemTai: 78, diemXiu: 0, soPP: 1 };
-  if (k > 75) return { diemTai: 0, diemXiu: 72, soPP: 1 };
-  if (k < 25) return { diemTai: 72, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 18. WILLIAMS %R
+// 14. WILLIAMS %R
 function williamsR(lichSu) {
   if (lichSu.length < 14) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.slice(0, 14).map(r => r === "Tài" ? 1 : 0);
@@ -310,12 +372,10 @@ function williamsR(lichSu) {
   const wr = (highest - nums[13]) / (highest - lowest) * -100;
   if (wr < -85) return { diemTai: 78, diemXiu: 0, soPP: 1 };
   if (wr > -15) return { diemTai: 0, diemXiu: 78, soPP: 1 };
-  if (wr < -75) return { diemTai: 72, diemXiu: 0, soPP: 1 };
-  if (wr > -25) return { diemTai: 0, diemXiu: 72, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 19. CCI (COMMODITY CHANNEL INDEX)
+// 15. CCI
 function cciIndicator(lichSu) {
   if (lichSu.length < 14) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const nums = lichSu.slice(0, 14).map(r => r === "Tài" ? 1 : 0);
@@ -325,112 +385,43 @@ function cciIndicator(lichSu) {
   const cci = (nums[13] - mean) / (0.015 * mad);
   if (cci > 120) return { diemTai: 0, diemXiu: 76, soPP: 1 };
   if (cci < -120) return { diemTai: 76, diemXiu: 0, soPP: 1 };
-  if (cci > 100) return { diemTai: 0, diemXiu: 70, soPP: 1 };
-  if (cci < -100) return { diemTai: 70, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 20. ENTROPY (ĐỘ HỖN LOẠN)
-function entropyAnalysis(lichSu) {
-  if (lichSu.length < 20) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const tai20 = lichSu.slice(0, 20).filter(r => r === "Tài").length;
-  const p = tai20 / 20;
-  if (p === 0) return { diemTai: 82, diemXiu: 0, soPP: 1 };
-  if (p === 1) return { diemTai: 0, diemXiu: 82, soPP: 1 };
-  const entropy = -p * Math.log2(p) - (1-p) * Math.log2(1-p);
-  if (entropy < 0.5) {
-    if (p > 0.5) return { diemTai: 78, diemXiu: 0, soPP: 1 };
-    else return { diemTai: 0, diemXiu: 78, soPP: 1 };
+// 16. WAVELET (Phân tích chu kỳ)
+function waveletAnalysis(lichSu) {
+  if (lichSu.length < 16) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  const recent = lichSu.slice(0, 16);
+  let changes = 0;
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i] !== recent[i-1]) changes++;
   }
-  if (entropy > 0.95) {
-    if (p > 0.5) return { diemTai: 0, diemXiu: 74, soPP: 1 };
-    else return { diemTai: 74, diemXiu: 0, soPP: 1 };
+  const stability = 1 - changes / 15;
+  if (stability > 0.65) {
+    const trend = recent.filter(r => r === "Tài").length / 16;
+    if (trend > 0.55) return { diemTai: 72, diemXiu: 0, soPP: 1 };
+    if (trend < 0.45) return { diemTai: 0, diemXiu: 72, soPP: 1 };
   }
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 21. LINEAR REGRESSION
-function linearRegression(lichSu) {
-  if (lichSu.length < 12) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const y = lichSu.slice(0, 12).map(r => r === "Tài" ? 1 : 0);
-  const x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const n = 12;
-  const sumX = x.reduce((a, b) => a + b, 0);
-  const sumY = y.reduce((a, b) => a + b, 0);
-  const sumXY = x.reduce((s, xi, i) => s + xi * y[i], 0);
-  const sumX2 = x.reduce((s, xi) => s + xi * xi, 0);
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  const intercept = (sumY - slope * sumX) / n;
-  const pred = slope * 12 + intercept;
-  if (pred > 0.6) return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  if (pred < 0.4) return { diemTai: 0, diemXiu: 74, soPP: 1 };
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 22. KNN (K-LÁNG GIỀNG GẦN NHẤT)
-function knnPredict(lichSu) {
-  if (lichSu.length < 20) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const k = 5, lookback = 8;
-  const query = lichSu.slice(0, lookback);
-  const distances = [];
-  for (let i = lookback; i < lichSu.length - 1; i++) {
-    let diff = 0;
-    for (let j = 0; j < lookback; j++) {
-      if (lichSu[i - lookback + j] !== query[j]) diff++;
-    }
-    distances.push({ diff, next: lichSu[i] });
-  }
-  distances.sort((a, b) => a.diff - b.diff);
-  const neighbors = distances.slice(0, k);
-  const taiCount = neighbors.filter(n => n.next === "Tài").length;
-  if (taiCount >= 4) return { diemTai: 76, diemXiu: 0, soPP: 1 };
-  if (taiCount <= 1) return { diemTai: 0, diemXiu: 76, soPP: 1 };
-  if (taiCount === 3) return { diemTai: 68, diemXiu: 0, soPP: 1 };
-  if (taiCount === 2) return { diemTai: 0, diemXiu: 68, soPP: 1 };
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 23. DECISION TREE
-function decisionTree(lichSu) {
+// 17. MOMENTUM (Động lượng)
+function momentumAnalysis(lichSu) {
   if (lichSu.length < 10) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  const last1 = lichSu[0], last2 = lichSu[1], last3 = lichSu[2];
-  const t5 = lichSu.slice(0, 5).filter(r => r === "Tài").length;
-  if (last1 === "Tài" && last2 === "Tài" && last3 === "Tài") return { diemTai: 0, diemXiu: 80, soPP: 1 };
-  if (last1 === "Xỉu" && last2 === "Xỉu" && last3 === "Xỉu") return { diemTai: 80, diemXiu: 0, soPP: 1 };
-  if (last1 === "Tài" && last2 === "Xỉu" && last3 === "Tài") return { diemTai: 0, diemXiu: 76, soPP: 1 };
-  if (last1 === "Xỉu" && last2 === "Tài" && last3 === "Xỉu") return { diemTai: 76, diemXiu: 0, soPP: 1 };
-  if (t5 >= 4) return { diemTai: 0, diemXiu: 74, soPP: 1 };
-  if (t5 <= 1) return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  return { diemTai: 0, diemXiu: 0, soPP: 0 };
-}
-
-// 24. MOMENTUM (ĐÀ TĂNG GIẢM)
-function momentum(lichSu) {
-  if (lichSu.length < 15) return { diemTai: 0, diemXiu: 0, soPP: 0 };
   const last5 = lichSu.slice(0, 5).filter(r => r === "Tài").length;
   const prev5 = lichSu.slice(5, 10).filter(r => r === "Tài").length;
   const diff = last5 - prev5;
   if (diff >= 3) return { diemTai: 0, diemXiu: 74, soPP: 1 };
   if (diff <= -3) return { diemTai: 74, diemXiu: 0, soPP: 1 };
-  if (diff >= 2) return { diemTai: 0, diemXiu: 68, soPP: 1 };
-  if (diff <= -2) return { diemTai: 68, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
-// 25. GAP ANALYSIS (KHOẢNG CÁCH XUẤT HIỆN)
-function gapAnalysis(lichSu) {
-  if (lichSu.length < 15) return { diemTai: 0, diemXiu: 0, soPP: 0 };
-  let lastGap = 0, lastResult = lichSu[0];
-  for (let i = 1; i < lichSu.length; i++) {
-    if (lichSu[i] === lastResult) {
-      lastGap = i;
-      break;
-    }
-  }
-  if (lastGap > 5) {
-    if (lastResult === "Tài") return { diemTai: 72, diemXiu: 0, soPP: 1 };
-    else return { diemTai: 0, diemXiu: 72, soPP: 1 };
-  }
+// 18. TẦN SUẤT TỔNG ĐIỂM
+function tanSuatTongDiem(tongData) {
+  if (!tongData || tongData.length < 10) return { diemTai: 0, diemXiu: 0, soPP: 0 };
+  const avg = tongData.slice(0, 10).reduce((a, b) => a + b, 0) / 10;
+  if (avg > 12) return { diemTai: 0, diemXiu: 78, soPP: 1 };
+  if (avg < 9) return { diemTai: 78, diemXiu: 0, soPP: 1 };
   return { diemTai: 0, diemXiu: 0, soPP: 0 };
 }
 
@@ -438,26 +429,24 @@ function gapAnalysis(lichSu) {
 // TỔNG HỢP TẤT CẢ THUẬT TOÁN
 // ==========================================
 function tongHopDuDoan(lichSu, tongData) {
-  if (lichSu.length < 5) {
-    return { du_doan: "Tài", do_tin_cay: 55, giai_thich: "Chưa đủ dữ liệu (cần 5 phiên)" };
+  if (lichSu.length < 6) {
+    return { du_doan: "Tài", do_tin_cay: 55, giai_thich: "Chưa đủ dữ liệu (cần 6 phiên)" };
   }
   
   const cacPhuongPhap = [
-    phanTichBệt(lichSu), tanSuat5(lichSu), tanSuat10(lichSu), tanSuat20(lichSu),
-    cau1_1(lichSu), cau2_1(lichSu), cau3_2(lichSu), cauDoiXung(lichSu),
-    patternLap3(lichSu), patternLap4(lichSu), tongDiemTB(tongData), xuHuongTongDiem(tongData),
-    bienDoTongDiem(tongData), rsiIndicator(lichSu), macdIndicator(lichSu),
-    bollingerBands(lichSu), stochasticOsc(lichSu), williamsR(lichSu), cciIndicator(lichSu),
-    entropyAnalysis(lichSu), linearRegression(lichSu), knnPredict(lichSu),
-    decisionTree(lichSu), momentum(lichSu), gapAnalysis(lichSu)
+    phanTichBet(lichSu), cau1_1(lichSu), cau2_2(lichSu), cau3_3(lichSu),
+    cauDoiXung(lichSu), cauTamGiac(lichSu), cauVaiDauVai(lichSu),
+    traCuuDatabase(lichSu), markovChain(lichSu), rsiIndicator(lichSu),
+    macdIndicator(lichSu), bollingerBands(lichSu), stochasticOsc(lichSu),
+    williamsR(lichSu), cciIndicator(lichSu), waveletAnalysis(lichSu),
+    momentumAnalysis(lichSu), tanSuatTongDiem(tongData)
   ];
   
-  let diemTai = 0, diemXiu = 0;
-  let soPhuongPhap = 0;
+  let diemTai = 0, diemXiu = 0, soPhuongPhap = 0;
   
   for (let p of cacPhuongPhap) {
     if (p.soPP > 0) {
-      soPhuongPhap += p.soPP;
+      soPhuongPhap++;
       diemTai += p.diemTai;
       diemXiu += p.diemXiu;
     }
@@ -475,12 +464,12 @@ function tongHopDuDoan(lichSu, tongData) {
   
   const finalPred = diemTai > diemXiu ? "Tài" : "Xỉu";
   let doTinCay = Math.abs(diemTai - diemXiu) / (diemTai + diemXiu) * 100;
-  doTinCay = Math.min(94, Math.max(55, doTinCay));
+  doTinCay = Math.min(96, Math.max(55, doTinCay));
   
   return {
     du_doan: finalPred,
     do_tin_cay: Math.round(doTinCay),
-    giai_thich: `${soPhuongPhap} phương pháp phân tích | Tài:${Math.round(diemTai)} - Xỉu:${Math.round(diemXiu)}`
+    giai_thich: `${soPhuongPhap}/18 phương pháp | Tài:${Math.round(diemTai)} - Xỉu:${Math.round(diemXiu)}`
   };
 }
 
@@ -583,9 +572,6 @@ app.get('/sunwin-tx', async (req, res) => {
   }
 });
 
-// ==========================================
-// API LỊCH SỬ
-// ==========================================
 app.get('/lich-su', (req, res) => {
   res.json({
     lich_su_du_doan: lichSuDuDoan.slice(0, 50),
@@ -600,45 +586,42 @@ app.get('/thong-ke', (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    name: '🔥 SUNWIN TÀI XỈU - 25+ THUẬT TOÁN PHÂN TÍCH 🔥',
+    name: '🔥 SUNWIN TÀI XỈU - HỆ THỐNG SIÊU ĐIỆN RỘNG 🔥',
     author: '@tranhoang2286',
-    version: '46.0 - SIÊU MẠNH',
+    version: '50.0 - CỰC MẠNH',
+    database: `${patternDatabase.size} patterns từ file cau.txt`,
     endpoints: {
       'Dự đoán chính': '/sunwin-tx',
       'Lịch sử dự đoán': '/lich-su',
       'Thống kê': '/thong-ke'
     },
     danh_sach_thuat_toan: [
-      '1. Phân tích bệt (Streak) - cấp độ 3-4-5-6+',
-      '2. Tần suất 5 phiên',
-      '3. Tần suất 10 phiên (Martingale)',
-      '4. Tần suất 20 phiên',
-      '5. Cầu 1-1 (Zigzag)',
-      '6. Cầu 2-1',
-      '7. Cầu 3-2',
-      '8. Cầu đối xứng',
-      '9. Pattern lặp 3-3-3',
-      '10. Pattern lặp 4-4-4',
-      '11. Phân tích tổng điểm trung bình',
-      '12. Xu hướng tổng điểm (Delta)',
-      '13. Biên độ tổng điểm',
-      '14. RSI (Chỉ báo sức mạnh)',
-      '15. MACD (Hội tụ phân kỳ)',
-      '16. Bollinger Bands',
-      '17. Stochastic Oscillator',
-      '18. Williams %R',
-      '19. CCI (Commodity Channel Index)',
-      '20. Entropy (Độ hỗn loạn)',
-      '21. Linear Regression',
-      '22. KNN (K-láng giềng)',
-      '23. Decision Tree',
-      '24. Momentum (Đà tăng/giảm)',
-      '25. Gap Analysis (Khoảng cách)'
+      '1. Phân tích bệt (cấp 3-4-5-6-7+)',
+      '2. Cầu 1-1 (Alternating)',
+      '3. Cầu 2-2 (Song hành)',
+      '4. Cầu 3-3 (Song hành mở rộng)',
+      '5. Cầu đối xứng (Mirror)',
+      '6. Cầu tam giác (Triangle)',
+      '7. Cầu vai-đầu-vai (Head & Shoulders)',
+      '8. DATABASE SIÊU ĐIỆN RỘNG (từ file cau.txt)',
+      '9. Chuỗi Markov bậc 4',
+      '10. RSI (Chỉ báo sức mạnh)',
+      '11. MACD (Hội tụ phân kỳ)',
+      '12. Bollinger Bands',
+      '13. Stochastic Oscillator',
+      '14. Williams %R',
+      '15. CCI (Commodity Channel Index)',
+      '16. Wavelet Analysis (Phân tích chu kỳ)',
+      '17. Momentum Analysis (Động lượng)',
+      '18. Phân tích tổng điểm trung bình'
     ]
   });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🔥 SUNWIN TÀI XỈU - 25+ THUẬT TOÁN - PORT ${PORT}`);
-  console.log(`✅ Endpoint: http://localhost:${PORT}/sunwin-tx`);
+  console.log(`\n🔥 SUNWIN TÀI XỈU - HỆ THỐNG SIÊU ĐIỆN RỘNG 🔥`);
+  console.log(`✅ Tác giả: @tranhoang2286`);
+  console.log(`✅ Database: ${patternDatabase.size} patterns`);
+  console.log(`✅ Port: ${PORT}`);
+  console.log(`✅ Endpoint: http://localhost:${PORT}/sunwin-tx\n`);
 });
